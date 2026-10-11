@@ -249,7 +249,7 @@ class AiTtsSynthesizer @Inject constructor(
         val text = if (ai.fishAutoTag) fishAutoTag(ai, req.text) else FishAutoTag.stripUnspeakable(req.text)
         val body = JSONObject()
             .put("text", text)
-            .put("reference_id", ai.voice.ifBlank { FISH_DEFAULT_VOICE })
+            .put("reference_id", FishVoices.resolve(ai.voice))
             // 用裸 PCM（16bit 单声道）而非 WAV：流式 WAV 头的 data 长度可能是占位值，解析不可靠
             .put("format", "pcm")
             .put("sample_rate", sampleRate)
@@ -407,9 +407,6 @@ class AiTtsSynthesizer @Inject constructor(
     private companion object {
         /** Fish model 头可选值，第一个为默认（免费版 S2.1 Pro）。 */
         val FISH_MODELS = listOf("s2.1-pro-free", "s2.1-pro", "s2-pro", "s1")
-
-        /** 默认 Fish 音色：E-Girl。 */
-        const val FISH_DEFAULT_VOICE = "98655a12fa944e26b274c535e5e03842"
     }
 
     private fun readAll(input: InputStream): ByteArray {

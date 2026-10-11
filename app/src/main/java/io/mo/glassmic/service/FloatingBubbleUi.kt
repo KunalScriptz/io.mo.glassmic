@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +52,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -159,6 +162,12 @@ fun FloatingBubbleRoot(
     onCloseTtsSettings: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
+    fishMode: Boolean = false,
+    fishVoices: List<Pair<String, String>> = emptyList(),
+    fishVoiceId: String = "",
+    onSelectFishVoice: (String) -> Unit = {},
+    fishEnhance: Boolean = false,
+    onToggleFishEnhance: (Boolean) -> Unit = {},
 ) {
     // TTS 草稿提到这一层：分段切换器换 tab 会重建下方内容，草稿放在 TtsTab 内部会被清空。
     // FloatingBubbleRoot 在模式切换之间始终在位，remember 得以存活。
@@ -245,7 +254,13 @@ fun FloatingBubbleRoot(
                         durationMs = durationMs,
                         onSeek = onSeekTts,
                         delayRemainingMs = ttsDelayRemainingMs,
-                        onCancelDelayed = onCancelDelayedTts
+                        onCancelDelayed = onCancelDelayedTts,
+                        fishMode = fishMode,
+                        fishVoices = fishVoices,
+                        fishVoiceId = fishVoiceId,
+                        onSelectFishVoice = onSelectFishVoice,
+                        fishEnhance = fishEnhance,
+                        onToggleFishEnhance = onToggleFishEnhance
                     )
                 } else {
                     LibraryTab(
@@ -877,6 +892,12 @@ private fun TtsTab(
     onSeek: (Float) -> Unit,
     delayRemainingMs: Long,
     onCancelDelayed: () -> Unit,
+    fishMode: Boolean = false,
+    fishVoices: List<Pair<String, String>> = emptyList(),
+    fishVoiceId: String = "",
+    onSelectFishVoice: (String) -> Unit = {},
+    fishEnhance: Boolean = false,
+    onToggleFishEnhance: (Boolean) -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(OverlayShapes.Card)
@@ -954,6 +975,17 @@ private fun TtsTab(
         }
     }
 
+    // Fish Audio：音色切换 + 「优化文本」（自动标签）勾选；不勾选则按原文直接合成
+    if (fishMode) {
+        FishOptions(
+            voices = fishVoices,
+            selectedId = fishVoiceId,
+            onSelectVoice = onSelectFishVoice,
+            enhance = fishEnhance,
+            onToggleEnhance = onToggleFishEnhance
+        )
+    }
+
     // 操作按钮行：生成 / 本地试听 / 注入播放
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -1020,6 +1052,71 @@ private fun TtsTab(
             Text(formatMs(if (hasDuration) durationMs else 0L), color = OverlayColors.OnDarkDim, fontSize = 11.sp)
         }
     }
+}
+
+@Composable
+private fun FishOptions(
+    voices: List<Pair<String, String>>,
+    selectedId: String,
+    onSelectVoice: (String) -> Unit,
+    enhance: Boolean,
+    onToggleEnhance: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.float_tts_voice),
+            color = OverlayColors.OnDarkDim,
+            fontSize = 11.sp
+        )
+        val custom = voices.none { it.second == selectedId }
+        voices.forEach { (label, id) ->
+            VoiceChip(label, selected = id == selectedId) { onSelectVoice(id) }
+        }
+        if (custom) VoiceChip(stringResource(R.string.float_tts_voice_custom), selected = true) {}
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(OverlayShapes.Chip))
+            .clickable { onToggleEnhance(!enhance) }
+            .padding(top = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = enhance,
+            onCheckedChange = onToggleEnhance,
+            colors = CheckboxDefaults.colors(
+                checkedColor = OverlayColors.Accent,
+                uncheckedColor = OverlayColors.OnDarkDim
+            )
+        )
+        Text(
+            stringResource(R.string.float_tts_enhance),
+            color = if (enhance) OverlayColors.OnDark else OverlayColors.OnDarkDim,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun VoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (selected) OverlayColors.Accent else OverlayColors.OnDarkDim,
+        fontSize = 12.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(OverlayShapes.Chip))
+            .background(if (selected) OverlayColors.Accent.copy(alpha = 0.25f) else OverlayColors.FillStrong)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    )
 }
 
 // ============ 文字转语音设置面板 ============

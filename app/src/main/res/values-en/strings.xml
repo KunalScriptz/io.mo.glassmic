@@ -391,7 +391,7 @@
     <string name="settings_band_apply">Apply entered frequencies</string>
     <string name="settings_band_preview_hint">Release a slider to apply, or apply typed values with the button. Enable audio monitoring to compare the tone. A lower receiving sample rate also reduces the available bandwidth.</string>
     <string name="ai_tts_section_fish">Fish Audio</string>
-    <string name="ai_tts_fish_hint">API Key: your Fish Audio key. Model: s2.1-pro-free (free) / s2.1-pro / s2-pro / s1. Voice: a Fish voice ID (the code after /m/ in the voice URL; empty = E-Girl).</string>
+    <string name="ai_tts_fish_hint">API Key: your Fish Audio key. Model: s2.1-pro-free (free) / s2.1-pro / s2-pro / s1. Voice: a Fish voice ID (the code after /m/ in the voice URL; empty = Voice 1).</string>
     <string name="ai_tts_fish_auto_tag">Auto tags</string>
     <string name="ai_tts_fish_auto_tag_hint">Before synthesis, an LLM inserts Fish\'s built-in emotion / effect tags (e.g. [breathy], [laughing], [pause]) so the voice sounds human</string>
     <string name="ai_tts_fish_humanize">Humanize wording</string>
@@ -399,4 +399,7 @@
     <string name="ai_tts_llm_endpoint">LLM endpoint (empty = DeepSeek)</string>
     <string name="ai_tts_llm_api_key">LLM API key</string>
     <string name="ai_tts_llm_model">LLM model (empty = deepseek-chat)</string>
+    <string name="float_tts_voice">Voice</string>
+    <string name="float_tts_voice_custom">Custom</string>
+    <string name="float_tts_enhance">Enhance text (auto tags)</string>
 </resources>

@@ -1,0 +1,114 @@
+name: Build fork APK
+
+# 上游的 build-apk.yml 只在 lm060719/io.mo.glassmic 运行且需要原作者签名密钥。
+# 这个工作流只在 fork 上运行：每次推送都构建 Release APK，用 fork 自己的密钥签名，
+# 推送到 main 时额外发布一个预发布版本，方便直接下载。
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-fork-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository != 'lm060719/io.mo.glassmic' && github.repository != 'Xposed-Modules-Repo/io.mo.glassmic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17 and 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install SDK platforms and native toolchain
+        run: sdkmanager "platforms;android-35" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" "ndk;26.1.10909125"
+
+      - name: Build release APK
+        run: bash ./gradlew :app:compileDebugKotlin :xposed:compileDebugKotlin :app:assembleRelease --no-daemon --console=plain
+
+      - name: Audio regression checks
+        run: |
+          set -euo pipefail
+          stdlib=$(find "$HOME/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib" -name 'kotlin-stdlib-*.jar' ! -name '*sources*' ! -name '*javadoc*' | sort -V | tail -1)
+          test -n "$stdlib"
+          mkdir -p build/audio-regression
+          classpath="app/build/tmp/kotlin-classes/debug:xposed/build/tmp/kotlin-classes/debug:$stdlib:build/audio-regression"
+          javac -encoding UTF-8 -cp "$classpath" -d build/audio-regression tests/audio/AudioRegression.java tests/audio/TapTimingRegression.java
+          java -cp "$classpath" AudioRegression
+          java -cp "$classpath" TapTimingRegression
+
+      - name: Sign APK
+        id: sign
+        env:
+          FORK_KEYSTORE_BASE64: ${{ secrets.FORK_KEYSTORE_BASE64 }}
+          FORK_KEYSTORE_PASSWORD: ${{ secrets.FORK_KEYSTORE_PASSWORD }}
+          FORK_KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/fork-signing.jks"
+          if [ -n "${FORK_KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$FORK_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            pass="${FORK_KEYSTORE_PASSWORD:-glassmic-fork}"
+            alias="${FORK_KEY_ALIAS:-glassmic-fork}"
+            echo "Signing with the FORK_KEYSTORE_BASE64 secret"
+          else
+            # 没配置密钥时用一次性密钥签名：能安装，但每次构建签名都不同，升级需先卸载。
+            pass="ephemeral-$GITHUB_RUN_ID"
+            alias="glassmic-fork"
+            keytool -genkeypair -keystore "$keystore" -storetype PKCS12 -storepass "$pass" -keypass "$pass" \
+              -alias "$alias" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=GlassMic Fork (ephemeral)"
+            echo "::warning::FORK_KEYSTORE_BASE64 secret not set — signed with a one-off key. Each build will have a different signature, so you must uninstall before installing the next one."
+          fi
+          version=$(python3 -c 'import json; print(json.load(open("app/build/outputs/apk/release/output-metadata.json"))["elements"][0]["versionName"])')
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          mkdir -p dist
+          apk="dist/GlassMic-$version-${GITHUB_SHA::7}.apk"
+          "$tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$keystore" --ks-key-alias "$alias" --ks-pass "pass:$pass" --key-pass "pass:$pass" --v4-signing-enabled false --out "$apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$keystore"
+          "$tools/apksigner" verify --print-certs "$apk" > dist/signature.txt
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: GlassMic-fork-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish pre-release (main only)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="fork-${{ steps.sign.outputs.version }}-${GITHUB_SHA::7}"
+          gh release create "$tag" dist/*.apk dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "GlassMic ${{ steps.sign.outputs.version }} (${GITHUB_SHA::7})" \
+            --notes "Fork build of $GITHUB_SHA with Fish Audio TTS + auto tags."

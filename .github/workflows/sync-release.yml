@@ -14,6 +14,8 @@ permissions:
 
 jobs:
   sync-release:
+    # 只在上游仓库同步；fork 上没有 SYNC_TOKEN
+    if: github.repository == 'lm060719/io.mo.glassmic'
     runs-on: ubuntu-latest
     steps:
       - name: Sync release to target repo

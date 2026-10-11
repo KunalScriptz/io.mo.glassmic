@@ -6,6 +6,8 @@ on:
 
 jobs:
   sync:
+    # 只在上游仓库同步；fork 上没有 SYNC_TOKEN
+    if: github.repository == 'lm060719/io.mo.glassmic'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source

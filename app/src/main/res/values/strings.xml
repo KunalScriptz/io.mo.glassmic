@@ -390,4 +390,13 @@
     <string name="settings_band_invalid">请输入 20–20000 Hz 的整数，最低频率必须小于最高频率。</string>
     <string name="settings_band_apply">应用输入的频率</string>
     <string name="settings_band_preview_hint">滑动后松手生效；手动输入后点应用。可开启实时耳返对比音色。目标软件的采样率较低时，实际带宽也会降低。</string>
+    <string name="ai_tts_section_fish">Fish Audio</string>
+    <string name="ai_tts_fish_hint">API Key 填 Fish Audio 的密钥；模型可选 s2.1-pro-free（免费）/ s2.1-pro / s2-pro / s1；音色填 Fish 声音 ID（网址 /m/ 后那串，留空默认 E-Girl）。</string>
+    <string name="ai_tts_fish_auto_tag">自动标签</string>
+    <string name="ai_tts_fish_auto_tag_hint">合成前用 LLM 自动插入 Fish 内置情绪 / 音效标签（如 [breathy]、[laughing]、[pause]），让语音更像真人</string>
+    <string name="ai_tts_fish_humanize">口语化改写</string>
+    <string name="ai_tts_fish_humanize_hint">开启后会把措辞改得更口语（加语气词、停顿）；关闭则一字不改，只加标签</string>
+    <string name="ai_tts_llm_endpoint">LLM 接口地址（留空 = DeepSeek）</string>
+    <string name="ai_tts_llm_api_key">LLM API Key</string>
+    <string name="ai_tts_llm_model">LLM 模型（留空 = deepseek-chat）</string>
 </resources>

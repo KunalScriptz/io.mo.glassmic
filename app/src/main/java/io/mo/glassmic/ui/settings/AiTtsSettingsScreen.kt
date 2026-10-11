@@ -138,6 +138,36 @@ fun AiTtsSettingsScreen(
                 }
             }
 
+            if (ai.provider == TtsProvider.FISH) {
+                item {
+                    Section(stringResource(R.string.ai_tts_section_fish)) {
+                        Text(
+                            stringResource(R.string.ai_tts_fish_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                        SwitchRow(
+                            label = stringResource(R.string.ai_tts_fish_auto_tag),
+                            hint = stringResource(R.string.ai_tts_fish_auto_tag_hint),
+                            checked = ai.fishAutoTag,
+                            onChange = vm::setFishAutoTag
+                        )
+                        if (ai.fishAutoTag) {
+                            SwitchRow(
+                                label = stringResource(R.string.ai_tts_fish_humanize),
+                                hint = stringResource(R.string.ai_tts_fish_humanize_hint),
+                                checked = ai.fishHumanize,
+                                onChange = vm::setFishHumanize
+                            )
+                            ConfigTextField(stringResource(R.string.ai_tts_llm_endpoint), ai.llmEndpoint, vm::setLlmEndpoint)
+                            ConfigTextField(stringResource(R.string.ai_tts_llm_api_key), ai.llmApiKey, vm::setLlmApiKey)
+                            ConfigTextField(stringResource(R.string.ai_tts_llm_model), ai.llmModel, vm::setLlmModel)
+                        }
+                    }
+                }
+            }
+
             item {
                 Section(stringResource(R.string.ai_tts_section_test)) {
                     TestRow(vm.test.collectAsState().value, onTest = vm::testConnection)
@@ -177,6 +207,7 @@ private fun ProviderPicker(current: TtsProvider, onSelect: (TtsProvider) -> Unit
         PolicyOption(stringResource(R.string.ai_tts_provider_openai), effective == TtsProvider.OPENAI) { onSelect(TtsProvider.OPENAI) }
         PolicyOption(stringResource(R.string.ai_tts_provider_gemini), effective == TtsProvider.GEMINI) { onSelect(TtsProvider.GEMINI) }
         PolicyOption(stringResource(R.string.ai_tts_provider_mimo), effective == TtsProvider.MIMO) { onSelect(TtsProvider.MIMO) }
+        PolicyOption("Fish Audio", effective == TtsProvider.FISH) { onSelect(TtsProvider.FISH) }
     }
 }
 

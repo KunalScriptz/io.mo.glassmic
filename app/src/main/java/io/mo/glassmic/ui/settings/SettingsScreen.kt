@@ -490,6 +490,7 @@ private fun NavRow(title: String, subtitle: String, onClick: () -> Unit) {
 private fun providerLabel(p: TtsProvider): String = when (p) {
     TtsProvider.GEMINI -> "Gemini"
     TtsProvider.MIMO -> "MiMo"
+    TtsProvider.FISH -> "Fish Audio"
     else -> "OpenAI"
 }
 

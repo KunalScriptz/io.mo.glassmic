@@ -44,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -162,9 +163,14 @@ fun FloatingBubbleRoot(
     panelHeightDp: Int = 0,
     onResizePanel: (widthDp: Int, heightDp: Int) -> Unit = { _, _ -> },
 ) {
-    // 面板尺寸：拖动中实时变化，松手后经 onResizePanel 存进配置；配置值变化（如恢复默认）时重置
-    val panelSize = remember(panelWidthDp, panelHeightDp) {
-        PanelSize(panelWidthDp.takeIf { it > 0 }?.dp, panelHeightDp.takeIf { it > 0 }?.dp)
+    // 面板尺寸：拖动中实时变化，松手后经 onResizePanel 存进配置。
+    // 对象只创建一次——拖动手势在 pointerInput(Unit) 里常驻，若配置一变就换新对象，
+    // 手势仍握着旧对象，第二次拖动改的就是界面不再显示的那个（表现为"松手后再拖拖不动"）。
+    // 配置值变化（保存后回读、恢复默认）只同步数值。
+    val panelSize = remember { PanelSize(panelWidthDp.takeIf { it > 0 }?.dp, panelHeightDp.takeIf { it > 0 }?.dp) }
+    LaunchedEffect(panelWidthDp, panelHeightDp) {
+        panelSize.width = panelWidthDp.takeIf { it > 0 }?.dp
+        panelSize.height = panelHeightDp.takeIf { it > 0 }?.dp
     }
     val saveSize = {
         onResizePanel(panelSize.width?.value?.roundToInt() ?: 0, panelSize.height?.value?.roundToInt() ?: 0)
@@ -376,6 +382,9 @@ private fun PanelShell(
         }
     }
 
+    val latestResizeEnd by rememberUpdatedState(onResizeEnd)
+    val latestReset by rememberUpdatedState(onResetSize)
+
     fun Modifier.resizeHandle(horizontal: Boolean, vertical: Boolean): Modifier = pointerInput(Unit) {
         detectDragGestures(
             onDragStart = {
@@ -383,8 +392,8 @@ private fun PanelShell(
                 if (panel.width == null) panel.width = curWidth
                 if (vertical && panel.height == null) panel.height = curHeight
             },
-            onDragEnd = onResizeEnd,
-            onDragCancel = onResizeEnd
+            onDragEnd = { latestResizeEnd() },
+            onDragCancel = { latestResizeEnd() }
         ) { change, drag ->
             change.consume()
             resizeBy(if (horizontal) drag.x.toDp() else 0.dp, if (vertical) drag.y.toDp() else 0.dp)
@@ -450,7 +459,7 @@ private fun PanelShell(
                 Modifier
                     .align(Alignment.BottomEnd)
                     .size(40.dp)
-                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onResetSize() }) }
+                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { latestReset() }) }
                     .resizeHandle(horizontal = true, vertical = true)
                     .drawBehind {
                         val stroke = 2.dp.toPx()

@@ -52,6 +52,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.Stable
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -149,7 +158,18 @@ fun FloatingBubbleRoot(
     onCloseTtsSettings: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
+    panelWidthDp: Int = 0,
+    panelHeightDp: Int = 0,
+    onResizePanel: (widthDp: Int, heightDp: Int) -> Unit = { _, _ -> },
 ) {
+    // 面板尺寸：拖动中实时变化，松手后经 onResizePanel 存进配置；配置值变化（如恢复默认）时重置
+    val panelSize = remember(panelWidthDp, panelHeightDp) {
+        PanelSize(panelWidthDp.takeIf { it > 0 }?.dp, panelHeightDp.takeIf { it > 0 }?.dp)
+    }
+    val saveSize = {
+        onResizePanel(panelSize.width?.value?.roundToInt() ?: 0, panelSize.height?.value?.roundToInt() ?: 0)
+    }
+    val resetSize = { onResizePanel(0, 0) }
     // TTS 草稿提到这一层：切 tab 会重建下方内容，草稿放在 TtsTab 内部会被清空。
     var ttsDraft by remember { mutableStateOf("") }
     // 音频库当前查看的分组，同理提到这一层；默认跟随当前音源所在分组。
@@ -172,6 +192,10 @@ fun FloatingBubbleRoot(
                 PanelShell(
                     maxWidth = panelMaxWidth,
                     maxHeight = if (tab == PanelTab.TTS) Dp.Infinity else panelMaxHeight,
+                    panel = panelSize,
+                    scrollable = tab == PanelTab.TTS,
+                    onResizeEnd = saveSize,
+                    onResetSize = resetSize,
                     onDragBy = onDragBy,
                     onDragEnd = onDragEnd,
                     header = {
@@ -207,6 +231,7 @@ fun FloatingBubbleRoot(
                     )
                     if (tab == PanelTab.LIBRARY) {
                         LibraryTab(
+                            fixedHeight = panelSize.height != null,
                             activeFile = activeFile,
                             paused = paused,
                             currentName = currentName,
@@ -252,6 +277,10 @@ fun FloatingBubbleRoot(
             FloatMode.TTS_SETTINGS -> PanelShell(
                 maxWidth = panelMaxWidth,
                 maxHeight = Dp.Infinity,
+                panel = panelSize,
+                scrollable = false,
+                onResizeEnd = saveSize,
+                onResetSize = resetSize,
                 onDragBy = onDragBy,
                 onDragEnd = onDragEnd,
                 header = {
@@ -294,14 +323,31 @@ private fun Modifier.dragHandle(
 
 // ============ 面板外壳 ============
 
+/** 展开面板的尺寸；null 表示默认（宽 [EXPANDED_PANEL_WIDTH]、高随内容自适应）。 */
+@Stable
+private class PanelSize(width: Dp?, height: Dp?) {
+    var width by mutableStateOf(width)
+    var height by mutableStateOf(height)
+}
+
+private val PANEL_MIN_WIDTH = 260.dp
+private val PANEL_MIN_HEIGHT = 300.dp
+
 /**
  * 玻璃面板：30 圆角、sheet 材质（浮在任意 App 之上，用近不透明底保证可读）、
  * 发丝描边与投影；标题栏可拖动。
+ *
+ * 右边缘 / 下边缘 / 右下角可拖动调整大小（右下角有握把，双击恢复默认），松手后保存。
+ * 调过高度后内容区填满面板：[scrollable] 为 true 时内容可滚动，音频库则由列表自身滚动。
  */
 @Composable
 private fun PanelShell(
     maxWidth: Dp,
     maxHeight: Dp,
+    panel: PanelSize,
+    scrollable: Boolean,
+    onResizeEnd: () -> Unit,
+    onResetSize: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     header: @Composable RowScope.() -> Unit,
@@ -309,16 +355,55 @@ private fun PanelShell(
 ) {
     val t = glass
     val shape = RoundedCornerShape(30.dp)
-    val width = minOf(EXPANDED_PANEL_WIDTH, (maxWidth - 20.dp).coerceAtLeast(240.dp))
+    val density = LocalDensity.current
+    val maxW = (maxWidth - 20.dp).coerceAtLeast(PANEL_MIN_WIDTH)
+    val maxH = if (maxHeight == Dp.Infinity) null else (maxHeight - 20.dp).coerceAtLeast(PANEL_MIN_HEIGHT)
+    val width = (panel.width ?: EXPANDED_PANEL_WIDTH).coerceIn(PANEL_MIN_WIDTH, maxW)
+    val fixedHeight = panel.height?.let { h -> if (maxH != null) h.coerceIn(PANEL_MIN_HEIGHT, maxH) else h.coerceAtLeast(PANEL_MIN_HEIGHT) }
+    var measuredHeight by remember { mutableStateOf(0.dp) }
+
+    // 拖动手势用 pointerInput(Unit) 常驻，读取最新尺寸要经 rememberUpdatedState
+    val curWidth by rememberUpdatedState(width)
+    val curHeight by rememberUpdatedState(fixedHeight ?: measuredHeight)
+    val curMaxW by rememberUpdatedState(maxW)
+    val curMaxH by rememberUpdatedState(maxH)
+
+    fun resizeBy(dx: Dp, dy: Dp) {
+        if (dx != 0.dp) panel.width = (curWidth + dx).coerceIn(PANEL_MIN_WIDTH, curMaxW)
+        if (dy != 0.dp) {
+            val h = curHeight + dy
+            panel.height = curMaxH?.let { h.coerceIn(PANEL_MIN_HEIGHT, it) } ?: h.coerceAtLeast(PANEL_MIN_HEIGHT)
+        }
+    }
+
+    fun Modifier.resizeHandle(horizontal: Boolean, vertical: Boolean): Modifier = pointerInput(Unit) {
+        detectDragGestures(
+            onDragStart = {
+                // 第一次拖动时把默认值落成具体尺寸，之后按增量调整
+                if (panel.width == null) panel.width = curWidth
+                if (vertical && panel.height == null) panel.height = curHeight
+            },
+            onDragEnd = onResizeEnd,
+            onDragCancel = onResizeEnd
+        ) { change, drag ->
+            change.consume()
+            resizeBy(if (horizontal) drag.x.toDp() else 0.dp, if (vertical) drag.y.toDp() else 0.dp)
+        }
+    }
+
     // 投影画在外层边距里：窗口是 WRAP_CONTENT，投影外溢会被裁掉
     Box(Modifier.padding(10.dp)) {
         Column(
             modifier = Modifier
                 .width(width)
                 .then(
-                    if (maxHeight == Dp.Infinity) Modifier
-                    else Modifier.heightIn(max = (maxHeight - 20.dp).coerceAtLeast(240.dp))
+                    when {
+                        fixedHeight != null -> Modifier.height(fixedHeight)
+                        maxH != null -> Modifier.heightIn(max = maxH)
+                        else -> Modifier
+                    }
                 )
+                .onSizeChanged { measuredHeight = with(density) { it.height.toDp() } }
                 .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
                 .clip(shape)
                 .background(t.sheet)
@@ -331,7 +416,57 @@ private fun PanelShell(
                 verticalAlignment = Alignment.CenterVertically,
                 content = header
             )
-            content()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (fixedHeight != null) Modifier.weight(1f) else Modifier)
+                    .then(if (fixedHeight != null && scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                content = content
+            )
+        }
+
+        // 调整大小的触摸区：跨在面板边缘内外各约 9dp（外侧是投影留白，同属本窗口）
+        Box(Modifier.matchParentSize()) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(vertical = 44.dp)
+                    .width(20.dp)
+                    .fillMaxHeight()
+                    .resizeHandle(horizontal = true, vertical = false)
+            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 44.dp)
+                    .height(20.dp)
+                    .fillMaxWidth()
+                    .resizeHandle(horizontal = false, vertical = true)
+            )
+            // 右下角握把：可见的两道斜线，双向拖动；双击恢复默认大小
+            val grip = t.ink3
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(40.dp)
+                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onResetSize() }) }
+                    .resizeHandle(horizontal = true, vertical = true)
+                    .drawBehind {
+                        val stroke = 2.dp.toPx()
+                        val inset = 18.dp.toPx()
+                        val c = Offset(size.width - inset, size.height - inset)
+                        for (len in listOf(10.dp.toPx(), 5.dp.toPx())) {
+                            drawLine(
+                                grip,
+                                Offset(c.x - len, c.y),
+                                Offset(c.x, c.y - len),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                    }
+            )
         }
     }
 }
@@ -446,6 +581,7 @@ private fun Ball(
 
 @Composable
 private fun ColumnScope.LibraryTab(
+    fixedHeight: Boolean,
     activeFile: Boolean,
     paused: Boolean,
     currentName: String?,
@@ -526,7 +662,9 @@ private fun ColumnScope.LibraryTab(
             PanelEmpty(stringResource(R.string.float_no_clips_in_group))
         } else {
             LazyColumn(
-                modifier = Modifier.weight(1f, fill = false).heightIn(max = 264.dp),
+                // 用户调过高度时列表填满剩余空间；否则限高，面板随内容自适应
+                modifier = Modifier.weight(1f, fill = false)
+                    .then(if (fixedHeight) Modifier else Modifier.heightIn(max = 264.dp)),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(clips, key = { it.id }) { c ->

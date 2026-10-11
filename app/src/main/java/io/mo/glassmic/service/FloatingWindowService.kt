@@ -305,6 +305,9 @@ class FloatingWindowService : LifecycleService() {
                     onCloseTtsSettings = { setMode(FloatMode.TTS) },
                     onDragBy = { dx, dy -> onDragBy(dx, dy) },
                     onDragEnd = { onDragEnd() },
+                    panelWidthDp = cfg.floatingWindow.panelWidthDp,
+                    panelHeightDp = cfg.floatingWindow.panelHeightDp,
+                    onResizePanel = { w, h -> onResizePanel(w, h) },
                 )
             }
         }
@@ -385,6 +388,17 @@ class FloatingWindowService : LifecycleService() {
         if (durationMs <= 0) return
         val target = (durationMs * frac).toLong().coerceIn(0L, durationMs)
         lifecycleScope.launch { playback.seekTo(target) }
+    }
+
+    /** 保存展开面板尺寸（dp）；0 表示恢复默认。 */
+    private fun onResizePanel(widthDp: Int, heightDp: Int) {
+        lifecycleScope.launch {
+            configStore.update {
+                it.setFloatingWindow(
+                    it.floatingWindow.toBuilder().setPanelWidthDp(widthDp).setPanelHeightDp(heightDp).build()
+                )
+            }
+        }
     }
 
     private fun onDragBy(dx: Float, dy: Float) {

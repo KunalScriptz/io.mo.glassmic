@@ -240,6 +240,18 @@ fun SettingsScreen(
                         onSelect = vm::setFloatingSize
                     )
                 }
+                val fw = cfg.floatingWindow
+                val customPanel = fw.panelWidthDp > 0 || fw.panelHeightDp > 0
+                SettingRow(
+                    title = stringResource(R.string.settings_floating_panel_size),
+                    subtitle = if (customPanel) stringResource(
+                        R.string.settings_floating_panel_size_custom,
+                        if (fw.panelWidthDp > 0) fw.panelWidthDp.toString() else "340",
+                        if (fw.panelHeightDp > 0) fw.panelHeightDp.toString() else stringResource(R.string.settings_floating_panel_auto)
+                    ) else stringResource(R.string.settings_floating_panel_size_hint)
+                ) {
+                    if (customPanel) SoftButton(stringResource(R.string.settings_floating_panel_reset), vm::resetFloatingPanelSize, height = 32.dp)
+                }
                 SettingRow(
                     title = stringResource(R.string.settings_floating_icon),
                     subtitle = stringResource(R.string.settings_floating_icon_hint)

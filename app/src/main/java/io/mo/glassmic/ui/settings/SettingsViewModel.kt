@@ -198,6 +198,13 @@ class SettingsViewModel @Inject constructor(
         configStore.update { it.setFloatingWindow(it.floatingWindow.toBuilder().setEnabled(enabled)) }
     }
 
+    /** 展开面板恢复默认大小。 */
+    fun resetFloatingPanelSize() = viewModelScope.launch {
+        configStore.update {
+            it.setFloatingWindow(it.floatingWindow.toBuilder().setPanelWidthDp(0).setPanelHeightDp(0).build())
+        }
+    }
+
     fun setFloatingOpacity(opacity: Float) = viewModelScope.launch {
         configStore.update {
             it.setFloatingWindow(it.floatingWindow.toBuilder().setOpacity(opacity.coerceIn(0.2f, 1f)))

@@ -476,4 +476,9 @@
     <string name="settings_background_blur">Card blur</string>
     <string name="settings_background_dim">Card tint</string>
     <string name="settings_background_dim_hint">How solid the card backing is: higher is more legible, lower more see-through</string>
+    <string name="settings_floating_panel_size">Expanded panel size</string>
+    <string name="settings_floating_panel_size_hint">Drag the right edge, bottom edge or corner of the panel to resize; double-tap the corner to reset</string>
+    <string name="settings_floating_panel_size_custom">Custom: width %1$s · height %2$s</string>
+    <string name="settings_floating_panel_auto">auto</string>
+    <string name="settings_floating_panel_reset">Reset</string>
 </resources>

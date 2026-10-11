@@ -476,4 +476,9 @@
     <string name="settings_background_blur">卡片模糊</string>
     <string name="settings_background_dim">卡片遮罩</string>
     <string name="settings_background_dim_hint">卡片底色的深浅：越高文字越清晰，越低越通透</string>
+    <string name="settings_floating_panel_size">展开面板大小</string>
+    <string name="settings_floating_panel_size_hint">展开悬浮窗后拖动面板右边缘、下边缘或右下角调整，双击右下角恢复默认</string>
+    <string name="settings_floating_panel_size_custom">已自定义：宽 %1$s · 高 %2$s</string>
+    <string name="settings_floating_panel_auto">自适应</string>
+    <string name="settings_floating_panel_reset">恢复默认</string>
 </resources>

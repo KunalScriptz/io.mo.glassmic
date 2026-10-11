@@ -481,4 +481,6 @@
     <string name="settings_floating_panel_size_custom">已自定义：宽 %1$s · 高 %2$s</string>
     <string name="settings_floating_panel_auto">自适应</string>
     <string name="settings_floating_panel_reset">恢复默认</string>
+    <string name="float_pause">暂停</string>
+    <string name="float_play_resume">播放 / 继续</string>
 </resources>

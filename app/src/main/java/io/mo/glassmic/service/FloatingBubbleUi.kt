@@ -53,6 +53,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.combinedClickable
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
@@ -176,6 +180,25 @@ fun FloatingBubbleRoot(
         onResizePanel(panelSize.width?.value?.roundToInt() ?: 0, panelSize.height?.value?.roundToInt() ?: 0)
     }
     val resetSize = { onResizePanel(0, 0) }
+
+    // 精简 / 最小档的播放控制：有正在播的音源（文件或 TTS）就暂停 / 继续；
+    // 否则若文字转语音已生成好，点一下开始播放
+    val canToggle = activeFile || ttsActive
+    val miniEnabled = canToggle || ttsReady
+    val miniPlaying = canToggle && !paused
+    val miniToggle: () -> Unit = { if (canToggle) onTogglePause() else if (ttsReady) onPlayTts() }
+    val compactContent: @Composable ColumnScope.() -> Unit = {
+        PlaybackRow(
+            enabled = miniEnabled,
+            paused = !miniPlaying,
+            currentName = currentName,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            onTogglePause = miniToggle,
+            onSeek = if (ttsActive) onSeekTts else onSeek
+        )
+    }
+    val miniContent: @Composable BoxScope.(Dp) -> Unit = { side -> MiniPlayButton(miniEnabled, miniPlaying, side) }
     // TTS 草稿提到这一层：切 tab 会重建下方内容，草稿放在 TtsTab 内部会被清空。
     var ttsDraft by remember { mutableStateOf("") }
     // 音频库当前查看的分组，同理提到这一层；默认跟随当前音源所在分组。
@@ -204,6 +227,10 @@ fun FloatingBubbleRoot(
                     onResetSize = resetSize,
                     onDragBy = onDragBy,
                     onDragEnd = onDragEnd,
+                    compact = compactContent,
+                    mini = miniContent,
+                    onMiniTap = miniToggle,
+                    onMiniLongPress = onCollapse,
                     header = {
                         Dot(if (isStreaming) glass.err else glass.ink3)
                         Spacer(Modifier.width(10.dp))
@@ -289,6 +316,10 @@ fun FloatingBubbleRoot(
                 onResetSize = resetSize,
                 onDragBy = onDragBy,
                 onDragEnd = onDragEnd,
+                compact = compactContent,
+                mini = miniContent,
+                onMiniTap = miniToggle,
+                onMiniLongPress = onCollapse,
                 header = {
                     CircleIconButton(
                         Icons.AutoMirrored.Rounded.ArrowBackIos,
@@ -336,8 +367,18 @@ private class PanelSize(width: Dp?, height: Dp?) {
     var height by mutableStateOf(height)
 }
 
-private val PANEL_MIN_WIDTH = 260.dp
-private val PANEL_MIN_HEIGHT = 300.dp
+/** 能缩到的绝对最小尺寸：只剩一个播放键。 */
+private val PANEL_MIN_WIDTH = 72.dp
+private val PANEL_MIN_HEIGHT = 72.dp
+/** 不小于这个尺寸时显示完整面板（标签切换 + 列表 / 文字转语音）。 */
+private val FULL_MIN_WIDTH = 260.dp
+private val FULL_MIN_HEIGHT = 300.dp
+/** 小于这个尺寸时只剩播放键；介于两者之间是精简档（标题行 + 播放头）。 */
+private val MINI_MAX_WIDTH = 150.dp
+private val MINI_MAX_HEIGHT = 120.dp
+
+/** 面板随尺寸自动切换的显示档位。 */
+private enum class PanelLevel { FULL, COMPACT, MINI }
 
 /**
  * 玻璃面板：30 圆角、sheet 材质（浮在任意 App 之上，用近不透明底保证可读）、
@@ -346,6 +387,7 @@ private val PANEL_MIN_HEIGHT = 300.dp
  * 右边缘 / 下边缘 / 右下角可拖动调整大小（右下角有握把，双击恢复默认），松手后保存。
  * 调过高度后内容区填满面板：[scrollable] 为 true 时内容可滚动，音频库则由列表自身滚动。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PanelShell(
     maxWidth: Dp,
@@ -357,16 +399,25 @@ private fun PanelShell(
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     header: @Composable RowScope.() -> Unit,
+    compact: @Composable ColumnScope.() -> Unit,
+    mini: @Composable BoxScope.(side: Dp) -> Unit,
+    onMiniTap: () -> Unit,
+    onMiniLongPress: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val t = glass
-    val shape = RoundedCornerShape(30.dp)
     val density = LocalDensity.current
     val maxW = (maxWidth - 20.dp).coerceAtLeast(PANEL_MIN_WIDTH)
     val maxH = if (maxHeight == Dp.Infinity) null else (maxHeight - 20.dp).coerceAtLeast(PANEL_MIN_HEIGHT)
     val width = (panel.width ?: EXPANDED_PANEL_WIDTH).coerceIn(PANEL_MIN_WIDTH, maxW)
     val fixedHeight = panel.height?.let { h -> if (maxH != null) h.coerceIn(PANEL_MIN_HEIGHT, maxH) else h.coerceAtLeast(PANEL_MIN_HEIGHT) }
     var measuredHeight by remember { mutableStateOf(0.dp) }
+    // 高度未自定义时按宽度判断档位（高度随内容）
+    val level = when {
+        width < MINI_MAX_WIDTH || (fixedHeight != null && fixedHeight < MINI_MAX_HEIGHT) -> PanelLevel.MINI
+        width < FULL_MIN_WIDTH || (fixedHeight != null && fixedHeight < FULL_MIN_HEIGHT) -> PanelLevel.COMPACT
+        else -> PanelLevel.FULL
+    }
 
     // 拖动手势用 pointerInput(Unit) 常驻，读取最新尺寸要经 rememberUpdatedState
     val curWidth by rememberUpdatedState(width)
@@ -402,37 +453,64 @@ private fun PanelShell(
 
     // 投影画在外层边距里：窗口是 WRAP_CONTENT，投影外溢会被裁掉
     Box(Modifier.padding(10.dp)) {
-        Column(
-            modifier = Modifier
-                .width(width)
-                .then(
-                    when {
-                        fixedHeight != null -> Modifier.height(fixedHeight)
-                        maxH != null -> Modifier.heightIn(max = maxH)
-                        else -> Modifier
-                    }
-                )
-                .onSizeChanged { measuredHeight = with(density) { it.height.toDp() } }
-                .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
-                .clip(shape)
-                .background(t.sheet)
-                .border(BorderStroke(1.dp, t.rim), shape)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().dragHandle(onDragBy, onDragEnd),
-                verticalAlignment = Alignment.CenterVertically,
-                content = header
-            )
+        if (level == PanelLevel.MINI) {
+            // 最小档：整块是播放键——轻点播放/继续，拖动移动位置，长按收起成悬浮球
+            val boxHeight = fixedHeight ?: width
+            val side = minOf(width, boxHeight)
+            val shape = RoundedCornerShape(minOf(30.dp, side / 2))
+            Box(
+                modifier = Modifier
+                    .size(width, boxHeight)
+                    .onSizeChanged { measuredHeight = with(density) { it.height.toDp() } }
+                    .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
+                    .clip(shape)
+                    .background(t.sheet)
+                    .border(BorderStroke(1.dp, t.rim), shape)
+                    .dragHandle(onDragBy, onDragEnd)
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onLongClick = onMiniLongPress,
+                        onClick = onMiniTap
+                    )
+            ) { mini(side) }
+        } else {
+            val shape = RoundedCornerShape(30.dp)
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (fixedHeight != null) Modifier.weight(1f) else Modifier)
-                    .then(if (fixedHeight != null && scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                content = content
-            )
+                    .width(width)
+                    .then(
+                        when {
+                            fixedHeight != null -> Modifier.height(fixedHeight)
+                            maxH != null -> Modifier.heightIn(max = maxH)
+                            else -> Modifier
+                        }
+                    )
+                    .onSizeChanged { measuredHeight = with(density) { it.height.toDp() } }
+                    .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
+                    .clip(shape)
+                    .background(t.sheet)
+                    .border(BorderStroke(1.dp, t.rim), shape)
+                    .padding(if (level == PanelLevel.FULL) 16.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(if (level == PanelLevel.FULL) 14.dp else 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().dragHandle(onDragBy, onDragEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = header
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (fixedHeight != null) Modifier.weight(1f) else Modifier)
+                        .then(
+                            if (fixedHeight != null && (scrollable || level == PanelLevel.COMPACT))
+                                Modifier.verticalScroll(rememberScrollState()) else Modifier
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    content = if (level == PanelLevel.FULL) content else compact
+                )
+            }
         }
 
         // 调整大小的触摸区：跨在面板边缘内外各约 9dp（外侧是投影留白，同属本窗口）
@@ -440,7 +518,7 @@ private fun PanelShell(
             Box(
                 Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(vertical = 44.dp)
+                    .padding(vertical = if (level == PanelLevel.FULL) 44.dp else 22.dp)
                     .width(20.dp)
                     .fillMaxHeight()
                     .resizeHandle(horizontal = true, vertical = false)
@@ -448,7 +526,7 @@ private fun PanelShell(
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 44.dp)
+                    .padding(horizontal = if (level == PanelLevel.FULL) 44.dp else 22.dp)
                     .height(20.dp)
                     .fillMaxWidth()
                     .resizeHandle(horizontal = false, vertical = true)
@@ -458,14 +536,15 @@ private fun PanelShell(
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .size(40.dp)
+                    .size(if (level == PanelLevel.FULL) 40.dp else 30.dp)
                     .pointerInput(Unit) { detectTapGestures(onDoubleTap = { latestReset() }) }
                     .resizeHandle(horizontal = true, vertical = true)
                     .drawBehind {
                         val stroke = 2.dp.toPx()
                         val inset = 18.dp.toPx()
                         val c = Offset(size.width - inset, size.height - inset)
-                        for (len in listOf(10.dp.toPx(), 5.dp.toPx())) {
+                        val long = if (level == PanelLevel.FULL) 10.dp.toPx() else 7.dp.toPx()
+                        for (len in listOf(long, long / 2f)) {
                             drawLine(
                                 grip,
                                 Offset(c.x - len, c.y),
@@ -607,38 +686,15 @@ private fun ColumnScope.LibraryTab(
     onSetPlaybackPolicy: (PlaybackPolicy) -> Unit,
 ) {
     val t = glass
-    // ---- 播放头：播放/暂停 + 名称 + 进度 + 时间 ----
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .liquidClickable(enabled = activeFile, pressed = 0.9f, onClick = onTogglePause)
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(if (activeFile) t.primary else t.fill),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                if (paused || !activeFile) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                null,
-                tint = if (activeFile) Color.White else t.ink3,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                currentName ?: stringResource(R.string.float_no_source),
-                fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
-            ThinProgress(
-                fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
-                onSeek = if (durationMs > 0) onSeek else null
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(formatMs(positionMs), fontSize = 12.sp, color = t.ink3, fontFamily = MonoFamily)
-    }
+    PlaybackRow(
+        enabled = activeFile,
+        paused = paused,
+        currentName = currentName,
+        positionMs = positionMs,
+        durationMs = durationMs,
+        onTogglePause = onTogglePause,
+        onSeek = onSeek
+    )
 
     // ---- 分组切换（多于一个分组时显示） ----
     if (groups.size > 1) {
@@ -717,6 +773,78 @@ private fun ColumnScope.LibraryTab(
         height = 32.dp,
         fontSize = 12.sp
     )
+}
+
+/** 播放头：播放/暂停 + 名称 + 进度 + 时间。音频库页与精简档面板共用；窄时隐藏时间。 */
+@Composable
+private fun PlaybackRow(
+    enabled: Boolean,
+    paused: Boolean,
+    currentName: String?,
+    positionMs: Long,
+    durationMs: Long,
+    onTogglePause: () -> Unit,
+    onSeek: (Float) -> Unit,
+) {
+    val t = glass
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val showTime = maxWidth >= 200.dp
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .liquidClickable(enabled = enabled, pressed = 0.9f, onClick = onTogglePause)
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (enabled) t.primary else t.fill),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (paused || !enabled) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                    null,
+                    tint = if (enabled) Color.White else t.ink3,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    currentName ?: stringResource(R.string.float_no_source),
+                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                ThinProgress(
+                    fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
+                    onSeek = if (durationMs > 0) onSeek else null
+                )
+            }
+            if (showTime) {
+                Spacer(Modifier.width(12.dp))
+                Text(formatMs(positionMs), fontSize = 12.sp, color = t.ink3, fontFamily = MonoFamily)
+            }
+        }
+    }
+}
+
+/** 最小档：只有一个圆形播放键（整块面板都是点击区，由外壳处理点击）。 */
+@Composable
+private fun BoxScope.MiniPlayButton(enabled: Boolean, playing: Boolean, panelSide: Dp) {
+    val t = glass
+    val d = (panelSide - 16.dp).coerceIn(40.dp, 64.dp)
+    Box(
+        Modifier
+            .align(Alignment.Center)
+            .size(d)
+            .clip(CircleShape)
+            .background(if (enabled) t.primary else t.fill),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            stringResource(if (playing) R.string.float_pause else R.string.float_play_resume),
+            tint = if (enabled) Color.White else t.ink3,
+            modifier = Modifier.size(d * 0.46f)
+        )
+    }
 }
 
 /** 4dp 细进度条，可选点按跳转。 */

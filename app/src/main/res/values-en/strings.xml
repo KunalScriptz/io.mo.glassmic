@@ -481,4 +481,6 @@
     <string name="settings_floating_panel_size_custom">Custom: width %1$s · height %2$s</string>
     <string name="settings_floating_panel_auto">auto</string>
     <string name="settings_floating_panel_reset">Reset</string>
+    <string name="float_pause">Pause</string>
+    <string name="float_play_resume">Play / resume</string>
 </resources>
